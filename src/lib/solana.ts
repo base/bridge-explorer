@@ -68,8 +68,8 @@ export enum ResultKind {
 const SOL_ADDRESS = "SoL1111111111111111111111111111111111111111";
 
 const bridgeProgram = {
-  [ChainName.Solana]: "",
-  [ChainName.SolanaDevnet]: "HSvNvzehozUpYhRBuCKq3Fq8udpRocTmGMUYXmCSiCCc",
+  [ChainName.Solana]: "HNCne2FkVaNghhjKXapxJzPaBvAKDG1Ge3gqhZyfVWLM",
+  [ChainName.SolanaDevnet]: "7c6mteAcTXaQ1MFBCrnuzoZVTTAEfZwa6wgy4bqX3KXC",
 };
 
 function bytes32ToPubkey(inp: string): Address {

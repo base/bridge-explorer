@@ -23,12 +23,12 @@ import {
 import { BaseTxContainer, TxMessageRef } from "./bridge";
 
 const bridgeAddress: Record<number, Address> = {
-  8453: "0x", // Base Mainnet
-  84532: "0xB2068ECCDb908902C76E3f965c1712a9cF64171E", // Base Sepolia
+  8453: "0x3eff766C76a1be2Ce1aCF2B69c78bCae257D5188", // Base Mainnet
+  84532: "0x01824a90d32A69022DdAEcC6C5C14Ed08dB4EB9B", // Base Sepolia
 };
 const bridgeValidatorAddress: Record<number, Address> = {
-  8453: "0x", // Base Mainnet
-  84532: "0x8D2cD165360ACF5f0145661a8FB0Ff5D3729Ef9A", // Base Sepolia
+  8453: "0xAF24c1c24Ff3BF1e6D882518120fC25442d6794B", // Base Mainnet
+  84532: "0x863Bed3E344035253CC44C75612Ad5fDF5904aEE", // Base Sepolia
 };
 const MESSAGE_SUCCESSFULLY_RELAYED_TOPIC =
   "0x68bfb2e57fcbb47277da442d81d3e40ff118cbbcaf345b07997b35f592359e49";
