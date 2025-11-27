@@ -10,15 +10,7 @@ An explorer tool to look up information about cross-chain messages in [Base Brid
 npm install
 ```
 
-2. Acquire an [Etherscan API Key](https://etherscan.io/apis)
-
-3. Create a `.env.local` file to store API key
-
-```env
-ETHERSCAN_API_KEY=<your api key>
-```
-
-4. Run the app
+2. Run the app
 
 ```bash
 npm run dev
@@ -30,4 +22,4 @@ pnpm dev
 bun dev
 ```
 
-5. Visit [localhost:3000](http://localhost:3000/) in your browser
+3. Visit [localhost:3000](http://localhost:3000/) in your browser

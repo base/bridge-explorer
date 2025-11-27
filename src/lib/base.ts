@@ -8,6 +8,7 @@ import {
   Hex,
   http,
   Log,
+  toHex,
   TransactionReceipt,
 } from "viem";
 import { base, baseSepolia } from "viem/chains";
@@ -29,6 +30,10 @@ const bridgeAddress: Record<number, Address> = {
 const bridgeValidatorAddress: Record<number, Address> = {
   8453: "0xAF24c1c24Ff3BF1e6D882518120fC25442d6794B", // Base Mainnet
   84532: "0x863Bed3E344035253CC44C75612Ad5fDF5904aEE", // Base Sepolia
+};
+const bridgeStartBlock: Record<number, bigint> = {
+  8453: BigInt(38692795), // Base Mainnet
+  84532: BigInt(32743922), // Base Sepolia
 };
 const MESSAGE_SUCCESSFULLY_RELAYED_TOPIC =
   "0x68bfb2e57fcbb47277da442d81d3e40ff118cbbcaf345b07997b35f592359e49";
@@ -90,25 +95,21 @@ export class BaseMessageDecoder {
     isMainnet: boolean
   ): Promise<InitialTxDetails> {
     this.recognizedChainId = isMainnet ? base.id : baseSepolia.id;
-    console.log({ msgHash });
 
-    const res = await fetch(
-      `/api/etherscan/logs?chainId=${this.recognizedChainId}&module=logs&action=getLogs&topic0=${MESSAGE_INITIATED_TOPIC}&topic0_1_opr=and&topic1=${msgHash}`
+    const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
+    const logs = await this.getLogsWithChunking(
+      client,
+      bridgeAddress[this.recognizedChainId],
+      [MESSAGE_INITIATED_TOPIC as Hex, msgHash],
+      bridgeStartBlock[this.recognizedChainId]
     );
-
-    if (!res.ok) {
-      throw new Error("Init tx not found");
-    }
-
-    const json = await res.json();
-    console.log({ json });
-    const logs = json.result;
 
     if (logs.length === 0) {
       throw new Error("No logs found in init tx receipt");
     }
 
     const [log] = logs;
+    if (!log.transactionHash) throw new Error("Log transaction hash is null");
     const { initTxDetails } = await this.getBaseMessageInfoFromTransactionHash(
       log.transactionHash
     );
@@ -327,7 +328,6 @@ export class BaseMessageDecoder {
       receipt = await client.getTransactionReceipt({ hash });
       this.recognizedChainId = client.chain.id;
     }
-    console.log({ receipt });
     const { logs } = receipt;
 
     let bridgeSeen = false;
@@ -362,27 +362,23 @@ export class BaseMessageDecoder {
     msgHash: Hex,
     isMainnet: boolean
   ): Promise<{ validationTx: ValidationTxDetails; pubkey: Hex }> {
-    console.log({ msgHash });
-
     const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
 
-    const res = await fetch(
-      `/api/etherscan/logs?chainId=${this.recognizedChainId}&module=logs&action=getLogs&topic0=${MESSAGE_REGISTERED_TOPIC}&topic0_1_opr=and&topic1=${msgHash}`
+    const logs = await this.getLogsWithChunking(
+      client,
+      bridgeValidatorAddress[this.recognizedChainId],
+      [MESSAGE_REGISTERED_TOPIC as Hex, msgHash],
+      bridgeStartBlock[this.recognizedChainId]
     );
-
-    if (!res.ok) {
-      throw new Error("Validation tx not found");
-    }
-
-    const json = await res.json();
-    console.log({ json });
-    const logs = json.result;
 
     if (logs.length === 0) {
       throw new Error("No logs found in validation tx receipt");
     }
 
     const [log] = logs;
+    if (!log.blockHash || !log.transactionHash) {
+      throw new Error("Log blockHash or transactionHash is null");
+    }
     const prevalidatedBlockHash = log.blockHash;
     const prevalidatedTransactionHash = log.transactionHash;
     const block = await client.getBlock({
@@ -390,7 +386,6 @@ export class BaseMessageDecoder {
     });
     const prevalidatedTimestamp = block.timestamp;
     const pubkey = this.extractPubkeyFromLog(log);
-    console.log({ prevalidatedTransactionHash, prevalidatedTimestamp });
     return {
       validationTx: {
         chain: client.chain.name as ChainName,
@@ -483,32 +478,25 @@ export class BaseMessageDecoder {
     msgHash: Hex,
     isMainnet: boolean
   ): Promise<ExecuteTxDetails> {
-    console.log({ msgHash });
-
     const chainId = isMainnet ? base.id : baseSepolia.id;
     const chainName = isMainnet ? ChainName.Base : ChainName.BaseSepolia;
-    const client = createPublicClient({
-      chain: isMainnet ? base : baseSepolia,
-      transport: http(),
-    });
+    const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
 
-    const res = await fetch(
-      `/api/etherscan/logs?chainId=${chainId}&module=logs&action=getLogs&topic0=${MESSAGE_SUCCESSFULLY_RELAYED_TOPIC}&topic0_1_opr=and&topic2=${msgHash}`
+    const deliveredLogs = await this.getLogsWithChunking(
+      client,
+      bridgeAddress[chainId],
+      [MESSAGE_SUCCESSFULLY_RELAYED_TOPIC as Hex, null, msgHash],
+      bridgeStartBlock[chainId]
     );
 
-    if (!res.ok) {
+    if (deliveredLogs.length === 0) {
       // Check if attempted
-      const res = await fetch(
-        `/api/etherscan/logs?chainId=${chainId}&module=logs&action=getLogs&topic0=${FAILED_TO_RELAY_MESSAGE_TOPIC}&topic0_1_opr=and&topic2=${msgHash}`
+      const failureLogs = await this.getLogsWithChunking(
+        client,
+        bridgeAddress[chainId],
+        [FAILED_TO_RELAY_MESSAGE_TOPIC as Hex, null, msgHash],
+        bridgeStartBlock[chainId]
       );
-
-      if (!res.ok) {
-        throw new Error("Error querying for execution tx logs");
-      }
-
-      const json = await res.json();
-      console.log({ failedDeliveredRes: json });
-      const failureLogs = json.result;
 
       if (failureLogs.length > 0) {
         // Message execution was attempted but failed
@@ -522,17 +510,11 @@ export class BaseMessageDecoder {
           timestamp: "",
         };
       }
-    }
-
-    const json = await res.json();
-    console.log({ deliveredRes: json });
-    const deliveredLogs = json.result;
-
-    if (deliveredLogs.length === 0) {
       throw new Error("Execution tx not found for msg hash");
     }
 
     const [log] = deliveredLogs;
+    if (!log.transactionHash) throw new Error("Log transaction hash is null");
     const executedTransactionHash = log.transactionHash;
     const receipt = await client.getTransactionReceipt({
       hash: executedTransactionHash,
@@ -636,11 +618,14 @@ export class BaseMessageDecoder {
     throw new Error("Pubkey not found in receipt");
   }
 
-  private extractPubkeyFromLog(log: Log): Hex {
+  private extractPubkeyFromLog(log: {
+    data: Hex;
+    topics: [] | readonly Hex[] | Hex[];
+  }): Hex {
     const decodedData = decodeEventLog({
       abi: BridgeValidator,
       data: log.data,
-      topics: log.topics,
+      topics: log.topics as any,
     }) as {
       eventName: "MessageRegistered";
       args: {
@@ -649,5 +634,43 @@ export class BaseMessageDecoder {
       };
     };
     return decodedData.args.outgoingMessagePubkey;
+  }
+
+  private async getLogsWithChunking(
+    client: any,
+    address: Address,
+    topics: any[],
+    fromBlock: bigint
+  ) {
+    const currentBlock = await client.getBlockNumber();
+    const chunkSize = BigInt(2000); // Reduced chunk size for better reliability
+    const logs: any[] = [];
+
+    for (let i = fromBlock; i <= currentBlock; i += chunkSize) {
+      const end =
+        i + chunkSize - BigInt(1) > currentBlock
+          ? currentBlock
+          : i + chunkSize - BigInt(1);
+      // console.log(`Fetching logs from ${i} to ${end}`);
+      try {
+        const chunkLogs = await client.request({
+          method: "eth_getLogs",
+          params: [
+            {
+              address,
+              topics,
+              fromBlock: toHex(i),
+              toBlock: toHex(end),
+            },
+          ],
+        });
+        logs.push(...chunkLogs);
+      } catch (e) {
+        console.error(`Failed to fetch logs for range ${i}-${end}:`, e);
+        // If we fail, we should probably rethrow because missing logs is critical
+        throw e;
+      }
+    }
+    return logs;
   }
 }
