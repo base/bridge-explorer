@@ -333,7 +333,7 @@ export class SolanaMessageDecoder {
         initTx: {
           amount,
           asset,
-          chain: ChainName.SolanaDevnet,
+          chain: isMainnet ? ChainName.Solana : ChainName.SolanaDevnet,
           senderAddress,
           transactionHash: signature,
           timestamp: new Date(
