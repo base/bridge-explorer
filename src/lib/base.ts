@@ -46,7 +46,7 @@ const TRANSFER_FINALIZED_TOPIC =
 const MESSAGE_REGISTERED_TOPIC =
   "0x5e55930eb861ee57d9b7fa9e506b7f413cb1599c9886e57f1c8091f5fee5fc33";
 const MESSAGE_INITIATED_TOPIC =
-  "0xbaa7ef9db66a2e95a218100288cf439de5fbe1e4ed665cd1a2f01278242c9fc4";
+  "0x877352bc1cb00627bdb5bf16a3664cfe784f66bb3c1bfef68bf5b4ae34e66599";
 
 // Formats a big integer value given its token decimals into a human-friendly string
 export function formatUnitsString(

@@ -760,7 +760,7 @@ export default [
   },
   {
     type: "event",
-    name: "MessageRegistered",
+    name: "MessageInitiated",
     inputs: [
       {
         name: "messageHash",
@@ -961,6 +961,11 @@ export default [
   {
     type: "error",
     name: "AlreadyInitialized",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "CumulativeDepositExceedsU64",
     inputs: [],
   },
   {
