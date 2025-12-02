@@ -10,7 +10,6 @@ import {
   Log,
   toHex,
   TransactionReceipt,
-  PublicClient,
 } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import BridgeValidator from "../../abis/BridgeValidator";
@@ -110,11 +109,11 @@ export class BaseMessageDecoder {
       const estimatedDiff = BigInt(Math.floor((currentTime - timestamp) / 2));
       let searchBlock = currentHeight - estimatedDiff;
 
-      if (searchBlock < 0n) searchBlock = 0n;
+      if (searchBlock < BigInt(0)) searchBlock = BigInt(0);
 
       // Safety buffer of 10 minutes (300 blocks)
       searchBlock = searchBlock - BigInt(300);
-      if (searchBlock < 0n) searchBlock = 0n;
+      if (searchBlock < BigInt(0)) searchBlock = BigInt(0);
 
       return searchBlock;
     } catch (e) {
