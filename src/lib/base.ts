@@ -10,6 +10,7 @@ import {
   Log,
   toHex,
   TransactionReceipt,
+  PublicClient,
 } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import BridgeValidator from "../../abis/BridgeValidator";
@@ -82,26 +83,71 @@ export function formatUnitsString(
 export class BaseMessageDecoder {
   private baseClient = createPublicClient({
     chain: base,
-    transport: http(),
+    transport: http(
+      process.env.BASE_MAINNET_RPC || "https://base-rpc.publicnode.com"
+    ),
   });
   private baseSepoliaClient = createPublicClient({
     chain: baseSepolia,
-    transport: http(),
+    transport: http(process.env.BASE_SEPOLIA_RPC),
   });
   private recognizedChainId: number = 0;
 
+  private async getApproximateBlockFromTimestamp(
+    timestamp: number,
+    client: any
+  ): Promise<bigint> {
+    try {
+      const currentBlock = await client.getBlock();
+      const currentHeight = currentBlock.number;
+      const currentTime = Number(currentBlock.timestamp);
+
+      if (timestamp > currentTime) {
+        return currentHeight;
+      }
+
+      // Base has 2s blocks
+      const estimatedDiff = BigInt(Math.floor((currentTime - timestamp) / 2));
+      let searchBlock = currentHeight - estimatedDiff;
+
+      if (searchBlock < 0n) searchBlock = 0n;
+
+      // Safety buffer of 10 minutes (300 blocks)
+      searchBlock = searchBlock - BigInt(300);
+      if (searchBlock < 0n) searchBlock = 0n;
+
+      return searchBlock;
+    } catch (e) {
+      console.error("Error estimating block from timestamp", e);
+      return BigInt(0);
+    }
+  }
+
   async getBaseInitTxFromMsgHash(
     msgHash: Hash,
-    isMainnet: boolean
+    isMainnet: boolean,
+    minTimestamp?: number
   ): Promise<InitialTxDetails> {
     this.recognizedChainId = isMainnet ? base.id : baseSepolia.id;
 
     const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
+
+    let fromBlock = bridgeStartBlock[this.recognizedChainId];
+    if (minTimestamp) {
+      const estimatedBlock = await this.getApproximateBlockFromTimestamp(
+        minTimestamp,
+        client
+      );
+      if (estimatedBlock > fromBlock) {
+        fromBlock = estimatedBlock;
+      }
+    }
+
     const logs = await this.getLogsWithChunking(
       client,
       bridgeAddress[this.recognizedChainId],
       [MESSAGE_INITIATED_TOPIC as Hex, msgHash],
-      bridgeStartBlock[this.recognizedChainId]
+      fromBlock
     );
 
     if (logs.length === 0) {
@@ -121,21 +167,36 @@ export class BaseMessageDecoder {
 
   async getBaseMessageInfoFromMsgHash(
     msgHash: Hash,
-    isMainnet: boolean
+    isMainnet: boolean,
+    minTimestamp?: number
   ): Promise<{
     validationTxDetails: ValidationTxDetails;
     executeTxDetails: ExecuteTxDetails;
     pubkey: Hex;
   }> {
     this.recognizedChainId = isMainnet ? base.id : baseSepolia.id;
+    const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
+
+    let fromBlock = bridgeStartBlock[this.recognizedChainId];
+    if (minTimestamp) {
+      const estimatedBlock = await this.getApproximateBlockFromTimestamp(
+        minTimestamp,
+        client
+      );
+      if (estimatedBlock > fromBlock) {
+        fromBlock = estimatedBlock;
+      }
+    }
 
     const { validationTx, pubkey } = await this.getValidationTxFromMsgHash(
       msgHash,
-      isMainnet
+      isMainnet,
+      fromBlock
     );
     const executionTx = await this.getExecutionTxFromMsgHash(
       msgHash,
-      isMainnet
+      isMainnet,
+      fromBlock
     );
     return {
       validationTxDetails: validationTx,
@@ -360,7 +421,8 @@ export class BaseMessageDecoder {
 
   private async getValidationTxFromMsgHash(
     msgHash: Hex,
-    isMainnet: boolean
+    isMainnet: boolean,
+    fromBlock: bigint
   ): Promise<{ validationTx: ValidationTxDetails; pubkey: Hex }> {
     const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
 
@@ -368,7 +430,7 @@ export class BaseMessageDecoder {
       client,
       bridgeValidatorAddress[this.recognizedChainId],
       [MESSAGE_REGISTERED_TOPIC as Hex, msgHash],
-      bridgeStartBlock[this.recognizedChainId]
+      fromBlock
     );
 
     if (logs.length === 0) {
@@ -476,7 +538,8 @@ export class BaseMessageDecoder {
 
   private async getExecutionTxFromMsgHash(
     msgHash: Hex,
-    isMainnet: boolean
+    isMainnet: boolean,
+    fromBlock: bigint
   ): Promise<ExecuteTxDetails> {
     const chainId = isMainnet ? base.id : baseSepolia.id;
     const chainName = isMainnet ? ChainName.Base : ChainName.BaseSepolia;
@@ -486,7 +549,7 @@ export class BaseMessageDecoder {
       client,
       bridgeAddress[chainId],
       [MESSAGE_SUCCESSFULLY_RELAYED_TOPIC as Hex, null, msgHash],
-      bridgeStartBlock[chainId]
+      fromBlock
     );
 
     if (deliveredLogs.length === 0) {
@@ -495,7 +558,7 @@ export class BaseMessageDecoder {
         client,
         bridgeAddress[chainId],
         [FAILED_TO_RELAY_MESSAGE_TOPIC as Hex, null, msgHash],
-        bridgeStartBlock[chainId]
+        fromBlock
       );
 
       if (failureLogs.length > 0) {
@@ -643,33 +706,43 @@ export class BaseMessageDecoder {
     fromBlock: bigint
   ) {
     const currentBlock = await client.getBlockNumber();
-    const chunkSize = BigInt(2000); // Reduced chunk size for better reliability
+    const chunkSize = BigInt(10000);
     const logs: any[] = [];
 
+    const chunks: { from: bigint; to: bigint }[] = [];
     for (let i = fromBlock; i <= currentBlock; i += chunkSize) {
       const end =
         i + chunkSize - BigInt(1) > currentBlock
           ? currentBlock
           : i + chunkSize - BigInt(1);
-      // console.log(`Fetching logs from ${i} to ${end}`);
-      try {
-        const chunkLogs = await client.request({
-          method: "eth_getLogs",
-          params: [
-            {
-              address,
-              topics,
-              fromBlock: toHex(i),
-              toBlock: toHex(end),
-            },
-          ],
-        });
-        logs.push(...chunkLogs);
-      } catch (e) {
-        console.error(`Failed to fetch logs for range ${i}-${end}:`, e);
-        // If we fail, we should probably rethrow because missing logs is critical
-        throw e;
-      }
+      chunks.push({ from: i, to: end });
+    }
+
+    // Process chunks in batches
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batch = chunks.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(
+        batch.map(async ({ from, to }) => {
+          try {
+            return await client.request({
+              method: "eth_getLogs",
+              params: [
+                {
+                  address,
+                  topics,
+                  fromBlock: toHex(from),
+                  toBlock: toHex(to),
+                },
+              ],
+            });
+          } catch (e) {
+            console.error(`Failed to fetch logs for range ${from}-${to}:`, e);
+            throw e;
+          }
+        })
+      );
+      results.forEach((r) => logs.push(...r));
     }
     return logs;
   }

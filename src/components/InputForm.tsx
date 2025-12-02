@@ -176,11 +176,22 @@ export const InputForm = ({
             throw new Error("Solana init tx did not provide msg hash");
           }
 
+          const isMainnet = initTx.chain === ChainName.Solana;
+          const timestamp = initTx.timestamp
+            ? Math.floor(new Date(initTx.timestamp).getTime() / 1000)
+            : undefined;
+
+          const res = await fetch(
+            `/api/base/messageFromMsgHash?msgHash=${msgHash}&isMainnet=${isMainnet}&minTimestamp=${
+              timestamp || ""
+            }`
+          );
+          if (!res.ok) {
+            console.error(res);
+            throw new Error("Error from messageFromMsgHash endpoint");
+          }
           const { validationTxDetails: v, executeTxDetails: e } =
-            await baseDecoder.getBaseMessageInfoFromMsgHash(
-              msgHash,
-              initTx.chain === ChainName.Solana
-            );
+            await res.json();
 
           if (v) {
             validationTx = v;
