@@ -50,14 +50,10 @@ import {
 } from "./transaction";
 import { deriveMessageHash } from "./evm";
 import { Hex, toBytes, toHex } from "viem";
-import {
-  getMint,
-  getTokenMetadata,
-  TOKEN_2022_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { formatUnitsString } from "./base";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "./constants";
+import { getMint, getTokenMetadata } from "@solana/spl-token";
 
 export enum ResultKind {
   Message = "message",
