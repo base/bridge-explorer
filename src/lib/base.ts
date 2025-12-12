@@ -169,9 +169,9 @@ export class BaseMessageDecoder {
     isMainnet: boolean,
     minTimestamp?: number
   ): Promise<{
-    validationTxDetails: ValidationTxDetails;
-    executeTxDetails: ExecuteTxDetails;
-    pubkey: Hex;
+    validationTxDetails?: ValidationTxDetails;
+    executeTxDetails?: ExecuteTxDetails;
+    pubkey?: Hex;
   }> {
     this.recognizedChainId = isMainnet ? base.id : baseSepolia.id;
     const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
@@ -187,7 +187,7 @@ export class BaseMessageDecoder {
       }
     }
 
-    const { validationTx, pubkey } = await this.getValidationTxFromMsgHash(
+    const validationResult = await this.getValidationTxFromMsgHash(
       msgHash,
       isMainnet,
       fromBlock
@@ -198,9 +198,9 @@ export class BaseMessageDecoder {
       fromBlock
     );
     return {
-      validationTxDetails: validationTx,
+      validationTxDetails: validationResult?.validationTx,
       executeTxDetails: executionTx,
-      pubkey,
+      pubkey: validationResult?.pubkey,
     };
   }
 
@@ -422,7 +422,7 @@ export class BaseMessageDecoder {
     msgHash: Hex,
     isMainnet: boolean,
     fromBlock: bigint
-  ): Promise<{ validationTx: ValidationTxDetails; pubkey: Hex }> {
+  ): Promise<{ validationTx: ValidationTxDetails; pubkey: Hex } | undefined> {
     const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
 
     const logs = await this.getLogsWithChunking(
@@ -433,7 +433,7 @@ export class BaseMessageDecoder {
     );
 
     if (logs.length === 0) {
-      throw new Error("No logs found in validation tx receipt");
+      return undefined;
     }
 
     const [log] = logs;
@@ -539,7 +539,7 @@ export class BaseMessageDecoder {
     msgHash: Hex,
     isMainnet: boolean,
     fromBlock: bigint
-  ): Promise<ExecuteTxDetails> {
+  ): Promise<ExecuteTxDetails | undefined> {
     const chainId = isMainnet ? base.id : baseSepolia.id;
     const chainName = isMainnet ? ChainName.Base : ChainName.BaseSepolia;
     const client = isMainnet ? this.baseClient : this.baseSepoliaClient;
@@ -572,7 +572,7 @@ export class BaseMessageDecoder {
           timestamp: "",
         };
       }
-      throw new Error("Execution tx not found for msg hash");
+      return undefined;
     }
 
     const [log] = deliveredLogs;
