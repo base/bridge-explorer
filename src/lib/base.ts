@@ -8,6 +8,7 @@ import {
   Hex,
   http,
   Log,
+  PublicClient,
   toHex,
   TransactionReceipt,
 } from "viem";
@@ -94,7 +95,9 @@ export class BaseMessageDecoder {
 
   private async getApproximateBlockFromTimestamp(
     timestamp: number,
-    client: any
+    client: {
+      getBlock: () => Promise<{ number: bigint; timestamp: bigint }>;
+    }
   ): Promise<bigint> {
     try {
       const currentBlock = await client.getBlock();
@@ -212,7 +215,7 @@ export class BaseMessageDecoder {
     msgHash?: Hex;
     txContainer?: BaseTxContainer;
   }> {
-    // If this returns without erroring, we know the tx is part of a bridge interaction
+    // If this returns without error, we know the tx is part of a bridge interaction
     const { validationTx, executeTx, messageInit, receipt, client } =
       await this.identifyBaseTx(hash);
 
@@ -327,23 +330,31 @@ export class BaseMessageDecoder {
           asset = "ETH";
           block = await client.getBlock({ blockHash: receipt.blockHash });
         } else {
-          const calls: any = [
-            client.getBlock({ blockHash: receipt.blockHash }),
-            client.multicall({
-              contracts: [
-                {
-                  address: localToken,
-                  abi: ERC20,
-                  functionName: "symbol",
-                },
-                {
-                  address: localToken,
-                  abi: ERC20,
-                  functionName: "decimals",
-                },
-              ],
-            }),
-          ];
+          const calls: [
+            Promise<Block>,
+            Promise<
+              [
+                { result: string; status: "success" } | { error: Error; status: "failure" },
+                { result: number; status: "success" } | { error: Error; status: "failure" }
+              ]
+            >
+          ] = [
+              client.getBlock({ blockHash: receipt.blockHash }),
+              client.multicall({
+                contracts: [
+                  {
+                    address: localToken,
+                    abi: ERC20,
+                    functionName: "symbol",
+                  },
+                  {
+                    address: localToken,
+                    abi: ERC20,
+                    functionName: "decimals",
+                  },
+                ],
+              }),
+            ];
           const [blockRes, multicallResults] = await Promise.all(calls);
           block = blockRes;
           const [assetRes, decimalsRes] = multicallResults;
@@ -486,28 +497,36 @@ export class BaseMessageDecoder {
         const receiverAddress = String(decodedData.args.to);
         const localToken = decodedData.args.localToken;
 
-        const calls: any = [
-          client.getBlock({ blockHash: receipt.blockHash }),
-          client.multicall({
-            contracts: [
-              {
-                address: localToken,
-                abi: ERC20,
-                functionName: "symbol",
-              },
-              {
-                address: localToken,
-                abi: ERC20,
-                functionName: "decimals",
-              },
-            ],
-          }),
-        ];
+        const calls: [
+          Promise<Block>,
+          Promise<
+            [
+              { result: string; status: "success" } | { error: Error; status: "failure" },
+              { result: number; status: "success" } | { error: Error; status: "failure" }
+            ]
+          >
+        ] = [
+            client.getBlock({ blockHash: receipt.blockHash }),
+            client.multicall({
+              contracts: [
+                {
+                  address: localToken,
+                  abi: ERC20,
+                  functionName: "symbol",
+                },
+                {
+                  address: localToken,
+                  abi: ERC20,
+                  functionName: "decimals",
+                },
+              ],
+            }),
+          ];
 
         let asset: string = localToken;
         let decimals = 18;
 
-        if (asset.toLowerCase() === ethAddress) {
+        if (asset.toLowerCase() === ethAddress.toLowerCase()) {
           asset = "ETH";
         }
 
@@ -587,16 +606,16 @@ export class BaseMessageDecoder {
   private isBridgeLog(log: Log): boolean {
     return (
       log.address.toLowerCase() ===
-        bridgeValidatorAddress[this.recognizedChainId].toLowerCase() ||
+      bridgeValidatorAddress[this.recognizedChainId].toLowerCase() ||
       log.address.toLowerCase() ===
-        bridgeAddress[this.recognizedChainId].toLowerCase()
+      bridgeAddress[this.recognizedChainId].toLowerCase()
     );
   }
 
   private isValidationLog(log: Log): boolean {
     return (
       log.address.toLowerCase() ===
-        bridgeValidatorAddress[this.recognizedChainId].toLowerCase() &&
+      bridgeValidatorAddress[this.recognizedChainId].toLowerCase() &&
       log.topics[0] === MESSAGE_REGISTERED_TOPIC
     );
   }
@@ -604,7 +623,7 @@ export class BaseMessageDecoder {
   private isExecutionLog(log: Log): boolean {
     return (
       log.address.toLowerCase() ===
-        bridgeAddress[this.recognizedChainId].toLowerCase() &&
+      bridgeAddress[this.recognizedChainId].toLowerCase() &&
       log.topics[0] === MESSAGE_SUCCESSFULLY_RELAYED_TOPIC
     );
   }
@@ -612,7 +631,7 @@ export class BaseMessageDecoder {
   private isTransferInitLog(log: Log): boolean {
     return (
       log.address.toLowerCase() ===
-        bridgeAddress[this.recognizedChainId].toLowerCase() &&
+      bridgeAddress[this.recognizedChainId].toLowerCase() &&
       log.topics[0] === TRANSFER_INITIALIZED_TOPIC
     );
   }
@@ -620,7 +639,7 @@ export class BaseMessageDecoder {
   private isTransferExecutionLog(log: Log): boolean {
     return (
       log.address.toLowerCase() ===
-        bridgeAddress[this.recognizedChainId].toLowerCase() &&
+      bridgeAddress[this.recognizedChainId].toLowerCase() &&
       log.topics[0] === TRANSFER_FINALIZED_TOPIC
     );
   }
@@ -628,7 +647,7 @@ export class BaseMessageDecoder {
   private isMessageInitLog(log: Log): boolean {
     return (
       log.address.toLowerCase() ===
-        bridgeAddress[this.recognizedChainId].toLowerCase() &&
+      bridgeAddress[this.recognizedChainId].toLowerCase() &&
       log.topics[0] === MESSAGE_INITIATED_TOPIC
     );
   }
@@ -699,14 +718,15 @@ export class BaseMessageDecoder {
   }
 
   private async getLogsWithChunking(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     client: any,
     address: Address,
-    topics: any[],
+    topics: (Hex | null)[],
     fromBlock: bigint
-  ) {
+  ): Promise<Log[]> {
     const currentBlock = await client.getBlockNumber();
     const chunkSize = BigInt(10000);
-    const logs: any[] = [];
+    const logs: Log[] = [];
 
     const chunks: { from: bigint; to: bigint }[] = [];
     for (let i = fromBlock; i <= currentBlock; i += chunkSize) {
@@ -724,7 +744,7 @@ export class BaseMessageDecoder {
       const results = await Promise.all(
         batch.map(async ({ from, to }) => {
           try {
-            return await client.request({
+            const result = await client.request({
               method: "eth_getLogs",
               params: [
                 {
@@ -735,6 +755,7 @@ export class BaseMessageDecoder {
                 },
               ],
             });
+            return result as Log[];
           } catch (e) {
             console.error(`Failed to fetch logs for range ${from}-${to}:`, e);
             throw e;
