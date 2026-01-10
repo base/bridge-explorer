@@ -653,11 +653,11 @@ export class BaseMessageDecoder {
         };
         return decodedData.args.messageHash as Hex;
       } else if (this.isExecutionLog(log)) {
-        if (log.topics.length > 2) {
+        if (log.topics && log.topics.length > 2) {
           return log.topics[2] as Hex;
         }
       } else if (this.isMessageInitLog(log)) {
-        if (log.topics.length > 1) {
+        if (log.topics && log.topics.length > 1) {
           return log.topics[1] as Hex;
         }
       }
