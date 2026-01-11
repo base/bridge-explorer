@@ -153,8 +153,10 @@ export class SolanaMessageDecoder {
     }
     const [tx1, tx2] = res;
 
+    // getSignaturesForAddress returns newest first.
+    // If there are two transactions, tx1 is execution and tx2 is validation.
     const validationTx = tx2 ?? tx1;
-    const executeTx = tx2 ? tx1 : tx2;
+    const executeTx = tx2 ? tx1 : undefined;
 
     console.log({ executeTx });
 
@@ -313,7 +315,7 @@ export class SolanaMessageDecoder {
 
         if (msg.localToken === SOL_ADDRESS) {
           asset = "SOL";
-          amount = String(Number(msg.amount) / 1_000_000_000);
+          amount = formatUnitsString(String(msg.amount), 9);
         } else {
           // Figure out what localToken is
           const { amount: a, asset: ast } = await this.getSplData(
