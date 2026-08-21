@@ -22,7 +22,7 @@ import {
   decodeIncomingMessage,
   decodeOutgoingMessage,
   fetchIncomingMessage,
-  fetchOutgoingMessage,
+  
   getIncomingMessageDiscriminatorBytes,
   getOutgoingMessageDiscriminatorBytes,
   getOutputRootDiscriminatorBytes,
@@ -100,10 +100,10 @@ export class SolanaMessageDecoder {
     const pubkey = bytes32ToPubkey(pubkeyHex);
     const rpc = isMainnet ? this.mainnetRpc : this.devnetRpc;
 
-    const outgoingMessage = await fetchOutgoingMessage(rpc, pubkey);
-    console.log({ outgoingMessage });
+    
+
     const res = await rpc.getSignaturesForAddress(pubkey).send();
-    console.log({ res });
+
     if (res.length !== 1) {
       throw new Error(
         "Unexpected transaction signature count for outgoing message"
@@ -128,7 +128,7 @@ export class SolanaMessageDecoder {
     });
     try {
       const incomingMessage = await fetchIncomingMessage(rpc, messageAddress);
-      console.log({ incomingMessage });
+
       return this.getSolanaDeliveryFromIncomingMessage(
         incomingMessage,
         isMainnet
@@ -147,7 +147,7 @@ export class SolanaMessageDecoder {
     const res = await rpc
       .getSignaturesForAddress(incomingMessage.address)
       .send();
-    console.log({ res });
+
     if (res.length === 0) {
       return {};
     }
@@ -156,7 +156,7 @@ export class SolanaMessageDecoder {
     const validationTx = tx2 ?? tx1;
     const executeTx = tx2 ? tx1 : tx2;
 
-    console.log({ executeTx });
+
 
     const validationTxDetails = {
       chain,
@@ -199,8 +199,8 @@ export class SolanaMessageDecoder {
             TOKEN_2022_PROGRAM_ID
           );
 
-          console.log({ metadata });
-          console.log({ mintInfo });
+
+
 
           amount = formatUnitsString(
             String(msg.transfer.fields[0].amount),
@@ -252,7 +252,7 @@ export class SolanaMessageDecoder {
         maxSupportedTransactionVersion: 0,
       })
       .send();
-    console.log({ tx });
+
     if (!tx) {
       throw new Error("Solana transaction not found");
     }
@@ -302,7 +302,7 @@ export class SolanaMessageDecoder {
         string
       >;
 
-      console.log({ acct });
+
       const senderAddress = acct.data.sender ?? "";
 
       let asset = "";
@@ -344,7 +344,7 @@ export class SolanaMessageDecoder {
         IncomingMessage,
         string
       >;
-      console.log({ acct });
+
       const { validationTxDetails, executeTxDetails, msgHash } =
         await this.getSolanaDeliveryFromIncomingMessage(acct, isMainnet);
       return {
@@ -362,55 +362,36 @@ export class SolanaMessageDecoder {
     msg: BridgeSolanaToBaseStateOutgoingMessageTransfer,
     isMainnet: boolean
   ) {
-    try {
-      // Figure out what localToken is
-      const conn = new Connection(
-        isMainnet ? this.solanaMainnetUrl : this.solanaDevnetUrl
-      );
-      const metadata = await getTokenMetadata(
-        conn,
-        new PublicKey(msg.localToken),
-        "finalized",
-        TOKEN_2022_PROGRAM_ID
-      );
-      const mintInfo = await getMint(
-        conn,
-        new PublicKey(msg.localToken),
-        "finalized",
-        TOKEN_2022_PROGRAM_ID
-      );
-      console.log({ mintInfo });
-      const amount = formatUnitsString(String(msg.amount), mintInfo.decimals);
-      const asset = metadata?.symbol ?? msg.localToken;
-      return { amount, asset };
-    } catch {}
+    const connection = new Connection(
+      isMainnet ? this.solanaMainnetUrl : this.solanaDevnetUrl
+    );
+    const mint = new PublicKey(msg.localToken);
+    const programIds = [TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID] as const;
+    let lastError: unknown;
 
-    try {
-      // Figure out what localToken is
-      const conn = new Connection(
-        isMainnet ? this.solanaMainnetUrl : this.solanaDevnetUrl
-      );
-      const metadata = await getTokenMetadata(
-        conn,
-        new PublicKey(msg.localToken),
-        "finalized",
-        TOKEN_PROGRAM_ID
-      );
-      console.log({ metadata });
-      const mintInfo = await getMint(
-        conn,
-        new PublicKey(msg.localToken),
-        "finalized",
-        TOKEN_PROGRAM_ID
-      );
-      console.log({ mintInfo });
-      const amount = formatUnitsString(String(msg.amount), mintInfo.decimals);
-      const asset = msg.localToken;
-      // const asset = metadata?.symbol ?? msg.localToken;
-      return { amount, asset };
-    } catch {}
+    for (const programId of programIds) {
+      try {
+        const metadata = await getTokenMetadata(
+          connection,
+          mint,
+          "finalized",
+          programId
+        );
+        const mintInfo = await getMint(connection, mint, "finalized", programId);
+        const amount = formatUnitsString(String(msg.amount), mintInfo.decimals);
+        const asset =
+          programId === TOKEN_2022_PROGRAM_ID
+            ? metadata?.symbol ?? msg.localToken
+            : msg.localToken;
+        return { amount, asset };
+      } catch (error) {
+        lastError = error;
+      }
+    }
 
-    throw new Error("SPL data unknown");
+    throw new Error(`Unable to resolve SPL data for ${msg.localToken}`, {
+      cause: lastError,
+    });
   }
 
   private async identifySolanaTx(signature: string) {
@@ -434,7 +415,7 @@ export class SolanaMessageDecoder {
       chainName = ChainName.SolanaDevnet;
       transaction = await tryFetch(rpc);
     }
-    console.log({ transaction });
+
 
     if (!transaction) {
       throw new Error("Solana transaction not found");
@@ -591,7 +572,7 @@ export class SolanaMessageDecoder {
       }
     }
 
-    console.log({ bridgeSeen });
+
 
     if (!bridgeSeen) {
       throw new Error("Transaction not recognized");
@@ -619,7 +600,7 @@ export class SolanaMessageDecoder {
           rpc,
           address(info.newAccount as string)
         );
-        console.log({ encodedAcct });
+
 
         if (this.isOutgoingMessage(encodedAcct)) {
           return {
